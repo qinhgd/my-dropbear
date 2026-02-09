@@ -1,39 +1,68 @@
-name: Build Dropbear for ARMv7
+name: Build Static Dropbear for ARMv7
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch: # 支持手动触发编译
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Dropbear
+      - name: Install Dependencies
         run: |
-          wget -O build.sh https://gist.githubusercontent.com/.../raw/build-dropbear.sh
-          # 但更推荐直接内联脚本（见下方）
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf make wget upx-ucl bzip2
 
-      # —— 或者直接内联完整脚本 ——
-      - name: Build Dropbear (inline)
+      - name: Download Dropbear Source
         run: |
-          set -e
-          sudo apt update
-          sudo apt install -y gcc-arm-linux-gnueabihf upx-ucl wget tar build-essential
-          rm -rf dropbear-build && mkdir dropbear-build && cd dropbear-build
-          wget https://matt.ucc.asn.au/dropbear/releases/dropbear-2022.83.tar.bz2
-          tar -xjf dropbear-2022.83.tar.bz2
-          cd dropbear-2022.83
-          ./configure --disable-zlib --disable-lastlog --disable-utmp --disable-wtmp --disable-loginfunc --disable-pututline --disable-pututxline --enable-static CC=arm-linux-gnueabihf-gcc LDFLAGS="-static -s" CFLAGS="-Os -ffunction-sections -fdata-sections" LIBS="-Wl,--gc-sections"
-          make PROGRAMS="dropbear" -j2
-          upx --best -o dropbear_upx dropbear
-          cp dropbear_upx ../dropbear-armv7
-          cd ..
-          chmod +x dropbear-armv7
-          ls -lh dropbear-armv7
+          # 你可以更改版本号，2024.84 是较新版本
+          DROPBEAR_VERSION="2024.84"
+          wget https://matt.ucc.asn.au/dropbear/releases/dropbear-${DROPBEAR_VERSION}.tar.bz2
+          tar -xjf dropbear-${DROPBEAR_VERSION}.tar.bz2
+          mv dropbear-${DROPBEAR_VERSION} dropbear-src
+
+      - name: Configure and Build
+        run: |
+          cd dropbear-src
+          
+          # 关键点：LDFLAGS="-static" 确保生成的二进制不依赖系统库
+          # --disable-zlib 进一步减小体积（如果光猫上没有 zlib）
+          ./configure \
+            --host=arm-linux-gnueabihf \
+            --disable-zlib \
+            --disable-lastlog \
+            --disable-utmp \
+            --disable-utmpx \
+            --disable-wtmp \
+            --disable-wtmpx \
+            --disable-loginfunc \
+            --disable-pututline \
+            --disable-pututxline \
+            CC=arm-linux-gnueabihf-gcc \
+            LDFLAGS="-static"
+
+          # 只编译核心程序：服务端、客户端、密钥生成工具
+          make PROGRAMS="dropbear dbclient dropbearkey" -j$(nproc)
+
+      - name: Compress with UPX
+        run: |
+          cd dropbear-src
+          # 压缩二进制文件，节省光猫内存空间
+          upx --best dropbear dbclient dropbearkey
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p output
+          cp dropbear-src/dropbear output/
+          cp dropbear-src/dbclient output/
+          cp dropbear-src/dropbearkey output/
+          # 根据你的习惯，重命名文件夹以符合规范
+          mv output dropbear_armv7_static
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dropbear-armv7
-          path: dropbear-armv7
+          name: dropbear-armv7-static-binaries
+          path: dropbear_armv7_static/
