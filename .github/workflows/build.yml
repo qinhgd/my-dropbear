@@ -1,4 +1,4 @@
-name: Build Static Dropbear for ARMv7 (Password Auth Enabled)
+name: Build Static Dropbear for ARMv7
 
 on:
   workflow_dispatch:
@@ -13,8 +13,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # 安装交叉编译器和必要的静态库
-          sudo apt-get install -y gcc-arm-linux-gnueabihf make wget upx-ucl bzip2
+          # 安装交叉编译器以及目标架构的开发库
+          sudo apt-get install -y gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+                                 libc6-dev-armhf-cross make wget upx-ucl bzip2
 
       - name: Download Dropbear Source
         run: |
@@ -27,19 +28,15 @@ jobs:
         run: |
           cd dropbear-src
           
-          # 1. 强制启用密码登录配置
-          # 2. 预设 HAVE_CRYPT 避免 configure 阶段的误判
+          # 强制开启密码登录
           cat > localoptions.h <<EOF
           #define DROPBEAR_SVR_PASSWORD_AUTH 1
           #define DROPBEAR_SVR_PUBKEY_AUTH 1
           #define HAVE_CRYPT 1
           EOF
 
-          # 强制设置环境参数
-          export CC=arm-linux-gnueabihf-gcc
-          export AR=arm-linux-gnueabihf-ar
-          export RANLIB=arm-linux-gnueabihf-ranlib
-
+          # 关键修复：先不带 -static 进行 configure，在 make 时强制静态链接
+          # 这样可以避免 configure 脚本在检测编译器时因为找不到静态库而崩溃
           ./configure \
             --host=arm-linux-gnueabihf \
             --disable-zlib \
@@ -51,16 +48,18 @@ jobs:
             --disable-loginfunc \
             --disable-pututline \
             --disable-pututxline \
-            LDFLAGS="-static" \
-            LIBS="-lcrypt"
+            CC=arm-linux-gnueabihf-gcc
 
-          # 编译
-          make PROGRAMS="dropbear dbclient dropbearkey" -j$(nproc)
+          # 在 make 阶段通过 STATIC=1 或手动指定 LDFLAGS 实现静态编译
+          # 同时链接 crypt 库
+          make PROGRAMS="dropbear dbclient dropbearkey" \
+               LDFLAGS="-static" \
+               LIBS="-lcrypt" \
+               -j$(nproc)
 
       - name: Compress with UPX
         run: |
           cd dropbear-src
-          # 忽略压缩失败的错误（有些静态包过小可能无法压缩）
           upx --best dropbear dbclient dropbearkey || true
 
       - name: Prepare Artifacts
