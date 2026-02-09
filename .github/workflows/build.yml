@@ -1,4 +1,4 @@
-name: Build Static Dropbear for ARMv7
+name: Build Perfect Static Dropbear for ARMv7 (musl)
 
 on:
   workflow_dispatch:
@@ -10,12 +10,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install musl toolchain
         run: |
           sudo apt-get update
-          # 安装交叉编译器以及目标架构的开发库
-          sudo apt-get install -y gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
-                                 libc6-dev-armhf-cross make wget upx-ucl bzip2
+          # 下载专门的 arm-musl 交叉编译器
+          wget https://musl.cc/arm-linux-musleabihf-cross.tgz
+          tar -xzf arm-linux-musleabihf-cross.tgz
+          echo "$(pwd)/arm-linux-musleabihf-cross/bin" >> $GITHUB_PATH
 
       - name: Download Dropbear Source
         run: |
@@ -35,10 +36,10 @@ jobs:
           #define HAVE_CRYPT 1
           EOF
 
-          # 关键修复：先不带 -static 进行 configure，在 make 时强制静态链接
-          # 这样可以避免 configure 脚本在检测编译器时因为找不到静态库而崩溃
+          # 使用 musl-gcc 进行配置
+          # musl 环境下不需要单独链接 libcrypt，因为它已经包含在 libc 中
           ./configure \
-            --host=arm-linux-gnueabihf \
+            --host=arm-linux-musleabihf \
             --disable-zlib \
             --disable-lastlog \
             --disable-utmp \
@@ -48,18 +49,17 @@ jobs:
             --disable-loginfunc \
             --disable-pututline \
             --disable-pututxline \
-            CC=arm-linux-gnueabihf-gcc
+            CC=arm-linux-musleabihf-gcc
 
-          # 在 make 阶段通过 STATIC=1 或手动指定 LDFLAGS 实现静态编译
-          # 同时链接 crypt 库
+          # 执行静态编译
           make PROGRAMS="dropbear dbclient dropbearkey" \
                LDFLAGS="-static" \
-               LIBS="-lcrypt" \
                -j$(nproc)
 
       - name: Compress with UPX
         run: |
           cd dropbear-src
+          sudo apt-get install -y upx-ucl
           upx --best dropbear dbclient dropbearkey || true
 
       - name: Prepare Artifacts
@@ -68,10 +68,10 @@ jobs:
           cp dropbear-src/dropbear output/
           cp dropbear-src/dbclient output/
           cp dropbear-src/dropbearkey output/
-          mv output dropbear_armv7_static
+          mv output dropbear_armv7_musl_static
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dropbear-armv7-static-binaries
-          path: dropbear_armv7_static/
+          name: dropbear-armv7-musl-static
+          path: dropbear_armv7_musl_static/
