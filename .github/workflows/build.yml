@@ -1,21 +1,39 @@
-- name: Download and build Dropbear
-  run: |
-    mkdir dropbear-build && cd dropbear-build
-    wget https://matt.ucc.asn.au/dropbear/releases/dropbear-2022.83.tar.bz2
-    tar -xjf dropbear-2022.83.tar.bz2
-    cd dropbear-2022.83
-    ./configure \
-      --disable-zlib \
-      --disable-lastlog \
-      --disable-utmp \
-      --disable-wtmp \
-      --disable-loginfunc \
-      --disable-pututline \
-      --enable-static \
-      CC=arm-linux-gnueabihf-gcc \
-      LDFLAGS="-static -s" \
-      CFLAGS="-Os -ffunction-sections -fdata-sections" \
-      LIBS="-Wl,--gc-sections"
-    make PROGRAMS="dropbear" -j2
-    upx --best -o dropbear_upx dropbear
-    cp dropbear_upx ../../dropbear-armv7
+name: Build Dropbear for ARMv7
+
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Dropbear
+        run: |
+          wget -O build.sh https://gist.githubusercontent.com/.../raw/build-dropbear.sh
+          # 但更推荐直接内联脚本（见下方）
+
+      # —— 或者直接内联完整脚本 ——
+      - name: Build Dropbear (inline)
+        run: |
+          set -e
+          sudo apt update
+          sudo apt install -y gcc-arm-linux-gnueabihf upx-ucl wget tar build-essential
+          rm -rf dropbear-build && mkdir dropbear-build && cd dropbear-build
+          wget https://matt.ucc.asn.au/dropbear/releases/dropbear-2022.83.tar.bz2
+          tar -xjf dropbear-2022.83.tar.bz2
+          cd dropbear-2022.83
+          ./configure --disable-zlib --disable-lastlog --disable-utmp --disable-wtmp --disable-loginfunc --disable-pututline --disable-pututxline --enable-static CC=arm-linux-gnueabihf-gcc LDFLAGS="-static -s" CFLAGS="-Os -ffunction-sections -fdata-sections" LIBS="-Wl,--gc-sections"
+          make PROGRAMS="dropbear" -j2
+          upx --best -o dropbear_upx dropbear
+          cp dropbear_upx ../dropbear-armv7
+          cd ..
+          chmod +x dropbear-armv7
+          ls -lh dropbear-armv7
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dropbear-armv7
+          path: dropbear-armv7
