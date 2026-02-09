@@ -1,46 +1,21 @@
-name: Build Dropbear for ARMv7
-
-on:
-  workflow_dispatch:  # 手动触发
-  push:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-arm-linux-gnueabihf upx-ucl wget tar
-
-      - name: Download and build Dropbear
-        run: |
-          mkdir dropbear-build && cd dropbear-build
-          wget https://matt.ucc.asn.au/dropbear/dropbear-2022.83.tar.bz2
-          tar -xjf dropbear-2022.83.tar.bz2
-          cd dropbear-2022.83
-          ./configure \
-            --disable-zlib \
-            --disable-lastlog \
-            --disable-utmp \
-            --disable-wtmp \
-            --disable-loginfunc \
-            --disable-pututline \
-            --enable-static \
-            CC=arm-linux-gnueabihf-gcc \
-            LDFLAGS="-static -s" \
-            CFLAGS="-Os -ffunction-sections -fdata-sections" \
-            LIBS="-Wl,--gc-sections"
-          make PROGRAMS="dropbear" -j2
-          upx --best -o dropbear_upx dropbear
-          cp dropbear_upx ../../dropbear-armv7
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dropbear-armv7
-          path: dropbear-armv7
+- name: Download and build Dropbear
+  run: |
+    mkdir dropbear-build && cd dropbear-build
+    wget https://matt.ucc.asn.au/dropbear/releases/dropbear-2022.83.tar.bz2
+    tar -xjf dropbear-2022.83.tar.bz2
+    cd dropbear-2022.83
+    ./configure \
+      --disable-zlib \
+      --disable-lastlog \
+      --disable-utmp \
+      --disable-wtmp \
+      --disable-loginfunc \
+      --disable-pututline \
+      --enable-static \
+      CC=arm-linux-gnueabihf-gcc \
+      LDFLAGS="-static -s" \
+      CFLAGS="-Os -ffunction-sections -fdata-sections" \
+      LIBS="-Wl,--gc-sections"
+    make PROGRAMS="dropbear" -j2
+    upx --best -o dropbear_upx dropbear
+    cp dropbear_upx ../../dropbear-armv7
