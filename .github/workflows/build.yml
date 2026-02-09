@@ -1,7 +1,7 @@
-name: Build Static Dropbear for ARMv7
+name: Build Static Dropbear for ARMv7 (Password Auth Enabled)
 
 on:
-  workflow_dispatch: # 支持手动触发编译
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,11 +13,11 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
+          # 安装交叉编译器和必要的静态库
           sudo apt-get install -y gcc-arm-linux-gnueabihf make wget upx-ucl bzip2
 
       - name: Download Dropbear Source
         run: |
-          # 你可以更改版本号，2024.84 是较新版本
           DROPBEAR_VERSION="2024.84"
           wget https://matt.ucc.asn.au/dropbear/releases/dropbear-${DROPBEAR_VERSION}.tar.bz2
           tar -xjf dropbear-${DROPBEAR_VERSION}.tar.bz2
@@ -27,8 +27,19 @@ jobs:
         run: |
           cd dropbear-src
           
-          # 关键点：LDFLAGS="-static" 确保生成的二进制不依赖系统库
-          # --disable-zlib 进一步减小体积（如果光猫上没有 zlib）
+          # 1. 强制启用密码登录配置
+          # 2. 预设 HAVE_CRYPT 避免 configure 阶段的误判
+          cat > localoptions.h <<EOF
+          #define DROPBEAR_SVR_PASSWORD_AUTH 1
+          #define DROPBEAR_SVR_PUBKEY_AUTH 1
+          #define HAVE_CRYPT 1
+          EOF
+
+          # 强制设置环境参数
+          export CC=arm-linux-gnueabihf-gcc
+          export AR=arm-linux-gnueabihf-ar
+          export RANLIB=arm-linux-gnueabihf-ranlib
+
           ./configure \
             --host=arm-linux-gnueabihf \
             --disable-zlib \
@@ -40,17 +51,17 @@ jobs:
             --disable-loginfunc \
             --disable-pututline \
             --disable-pututxline \
-            CC=arm-linux-gnueabihf-gcc \
-            LDFLAGS="-static"
+            LDFLAGS="-static" \
+            LIBS="-lcrypt"
 
-          # 只编译核心程序：服务端、客户端、密钥生成工具
+          # 编译
           make PROGRAMS="dropbear dbclient dropbearkey" -j$(nproc)
 
       - name: Compress with UPX
         run: |
           cd dropbear-src
-          # 压缩二进制文件，节省光猫内存空间
-          upx --best dropbear dbclient dropbearkey
+          # 忽略压缩失败的错误（有些静态包过小可能无法压缩）
+          upx --best dropbear dbclient dropbearkey || true
 
       - name: Prepare Artifacts
         run: |
@@ -58,7 +69,6 @@ jobs:
           cp dropbear-src/dropbear output/
           cp dropbear-src/dbclient output/
           cp dropbear-src/dropbearkey output/
-          # 根据你的习惯，重命名文件夹以符合规范
           mv output dropbear_armv7_static
 
       - name: Upload Artifact
